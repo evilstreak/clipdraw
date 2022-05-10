@@ -1,5 +1,5 @@
 import sys
-from typing import Iterator
+from typing import Any, Iterator
 import tempfile
 from pathlib import Path
 import random
@@ -47,6 +47,7 @@ class Predictor(BasePredictor):
                 default="Watercolor painting of an underwater submarine.",
                 description="prompt for generating image"
             ),
+            starting_paths: Any = None,
             num_paths: int = Input(
                 default=256,
                 description="number of paths/curves",
@@ -59,7 +60,7 @@ class Predictor(BasePredictor):
                 default=10,
                 description="display frequency of intermediate images",
             ),
-    ) -> Iterator[Path]:
+    ) -> Iterator[Any]:
         assert isinstance(num_paths, int) and num_paths > 0, 'num_paths should be an positive integer'
         assert isinstance(num_iterations, int) and num_iterations > 0, 'num_iterations should be an positive integer'
         out_path = Path(tempfile.mkdtemp()) / "out.png"
@@ -81,35 +82,51 @@ class Predictor(BasePredictor):
         max_width = args.max_width
 
         # Initialize Random Curves
+        if not starting_paths:
+            starting_paths = []
+            for i in range(num_paths):
+                num_segments = random.randint(1, 3)
+                num_control_points = torch.zeros(num_segments, dtype=torch.int32) + 2
+                points = []
+                p0 = (random.random(), random.random())
+                points.append(p0)
+                for j in range(num_segments):
+                    radius = 0.1
+                    p1 = (p0[0] + radius * (random.random() - 0.5), p0[1] + radius * (random.random() - 0.5))
+                    p2 = (p1[0] + radius * (random.random() - 0.5), p1[1] + radius * (random.random() - 0.5))
+                    p3 = (p2[0] + radius * (random.random() - 0.5), p2[1] + radius * (random.random() - 0.5))
+                    points.append(p1)
+                    points.append(p2)
+                    points.append(p3)
+                    p0 = p3
+                points = torch.tensor(points)
+                points[:, 0] *= canvas_width
+                points[:, 1] *= canvas_height
+                starting_paths.append({
+                    "points": points.tolist(),
+                    "num_control_points": num_control_points.tolist(),
+                    "stroke_width": 1.0,
+                    "stroke_color": [random.random(), random.random(), random.random(), random.random()],
+                })
+
         shapes = []
         shape_groups = []
-        for i in range(num_paths):
-            num_segments = random.randint(1, 3)
-            num_control_points = torch.zeros(num_segments, dtype=torch.int32) + 2
-            points = []
-            p0 = (random.random(), random.random())
-            points.append(p0)
-            for j in range(num_segments):
-                radius = 0.1
-                p1 = (p0[0] + radius * (random.random() - 0.5), p0[1] + radius * (random.random() - 0.5))
-                p2 = (p1[0] + radius * (random.random() - 0.5), p1[1] + radius * (random.random() - 0.5))
-                p3 = (p2[0] + radius * (random.random() - 0.5), p2[1] + radius * (random.random() - 0.5))
-                points.append(p1)
-                points.append(p2)
-                points.append(p3)
-                p0 = p3
-            points = torch.tensor(points)
-            points[:, 0] *= canvas_width
-            points[:, 1] *= canvas_height
-            path = pydiffvg.Path(num_control_points=num_control_points, points=points,
-                                 stroke_width=torch.tensor(1.0),
-                                 is_closed=False)
-            shapes.append(path)
-            path_group = pydiffvg.ShapeGroup(shape_ids=torch.tensor([len(shapes) - 1]), fill_color=None,
-                                             stroke_color=torch.tensor(
-                                                 [random.random(), random.random(), random.random(),
-                                                  random.random()]))
-            shape_groups.append(path_group)
+        for path in starting_paths:
+            shapes.append(
+                pydiffvg.Path(
+                    num_control_points=torch.tensor(path["num_control_points"]),
+                    points=torch.tensor(path["points"]),
+                    stroke_width=torch.tensor(path["stroke_width"]),
+                    is_closed=False,
+                )
+            )
+            shape_groups.append(
+                pydiffvg.ShapeGroup(
+                    shape_ids=torch.tensor([len(shapes) - 1]),
+                    fill_color=None,
+                    stroke_color=torch.tensor(path["stroke_color"]),
+                )
+            )
 
         # Just some diffvg setup
         scene_args = pydiffvg.RenderFunction.serialize_scene(canvas_width, canvas_height, shapes, shape_groups)
@@ -180,16 +197,29 @@ class Predictor(BasePredictor):
             for group in shape_groups:
                 group.stroke_color.data.clamp_(0.0, 1.0)
             if t % display_frequency == 0 or t == num_iterations - 1:
-                yield checkin(img.detach().cpu().numpy()[0], t, loss, out_path)
-        yield out_path
+                yield ending_paths(shapes, shape_groups)
+                # yield checkin(img.detach().cpu().numpy()[0], t, loss, out_path)
+        yield ending_paths(shapes, shape_groups)
+        # yield out_path
 
 
 @torch.no_grad()
 def checkin(img, t, loss, out_path=None):
-    sys.stderr.write(f"iteration: {t}, render:loss: {loss.item()}\n")
+    # sys.stderr.write(f"iteration: {t}, render:loss: {loss.item()}\n")
     save_img(img, str(out_path))
     return out_path
 
+
+def ending_paths(shapes, shape_groups):
+    paths = []
+    for shape, shape_group in zip(shapes, shape_groups):
+        paths.append({
+            "points": shape.points.tolist(),
+            "num_control_points": shape.num_control_points.tolist(),
+            "stroke_width": shape.stroke_width.item(),
+            "stroke_color": shape_group.stroke_color.tolist(),
+        })
+    return paths
 
 def save_img(img, file_name):
     img = np.transpose(img, (1, 2, 0))
