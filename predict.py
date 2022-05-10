@@ -1,3 +1,4 @@
+import json
 import sys
 from typing import Any, Iterator, List
 import tempfile
@@ -54,9 +55,9 @@ class Predictor(BasePredictor):
                 default="Watercolor painting of an underwater submarine.",
                 description="prompt for generating image"
             ),
-            starting_paths: List[PathObject] = Input(
+            starting_paths: str = Input(
                 default=None,
-                description="starting values for the paths; num_paths is ignored if this is set",
+                description="json-encoded starting values for the paths; num_paths is ignored if this is set",
             ),
             num_paths: int = Input(
                 default=256,
@@ -70,7 +71,7 @@ class Predictor(BasePredictor):
                 default=10,
                 description="display frequency of intermediate images",
             ),
-    ) -> Iterator[List[PathObject]]:
+    ) -> Iterator[str]:
         assert isinstance(num_paths, int) and num_paths > 0, 'num_paths should be an positive integer'
         assert isinstance(num_iterations, int) and num_iterations > 0, 'num_iterations should be an positive integer'
         out_path = Path(tempfile.mkdtemp()) / "out.png"
@@ -92,7 +93,9 @@ class Predictor(BasePredictor):
         max_width = args.max_width
 
         # Initialize Random Curves
-        if not starting_paths:
+        if starting_paths:
+            starting_paths = json.loads(starting_paths)
+        else:
             starting_paths = []
             for i in range(num_paths):
                 num_segments = random.randint(1, 3)
@@ -229,7 +232,7 @@ def ending_paths(shapes, shape_groups):
             "stroke_width": shape.stroke_width.item(),
             "stroke_color": shape_group.stroke_color.tolist(),
         })
-    return paths
+    return json.dumps(paths)
 
 def save_img(img, file_name):
     img = np.transpose(img, (1, 2, 0))
