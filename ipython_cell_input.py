@@ -1,3 +1,4 @@
+
 import json
 import sys
 from typing import Any, Iterator, List
@@ -64,10 +65,14 @@ class Predictor(BasePredictor):
                 description="number of paths/curves",
             ),
             num_iterations: int = Input(
-                default=10,
+                default=1000,
                 description="number of iterations",
             ),
-    ) -> str:
+            display_frequency: int = Input(
+                default=10,
+                description="display frequency of intermediate images",
+            ),
+    ) -> Iterator[str]:
         assert isinstance(num_paths, int) and num_paths > 0, 'num_paths should be an positive integer'
         assert isinstance(num_iterations, int) and num_iterations > 0, 'num_iterations should be an positive integer'
         out_path = Path(tempfile.mkdtemp()) / "out.png"
@@ -194,8 +199,6 @@ class Predictor(BasePredictor):
                     loss += torch.cosine_similarity(text_features_neg1, image_features[n:n + 1], dim=1) * 0.3
                     loss += torch.cosine_similarity(text_features_neg2, image_features[n:n + 1], dim=1) * 0.3
 
-            print(f"Iteration {t}; loss={loss.item()}")
-
             # Backpropagate the gradients.
             loss.backward()
 
@@ -207,7 +210,18 @@ class Predictor(BasePredictor):
                 path.stroke_width.data.clamp_(1.0, max_width)
             for group in shape_groups:
                 group.stroke_color.data.clamp_(0.0, 1.0)
-        return ending_paths(shapes, shape_groups)
+            if t % display_frequency == 0 or t == num_iterations - 1:
+                yield ending_paths(shapes, shape_groups)
+                # yield checkin(img.detach().cpu().numpy()[0], t, loss, out_path)
+        yield ending_paths(shapes, shape_groups)
+        # yield out_path
+
+
+@torch.no_grad()
+def checkin(img, t, loss, out_path=None):
+    # sys.stderr.write(f"iteration: {t}, render:loss: {loss.item()}\n")
+    save_img(img, str(out_path))
+    return out_path
 
 
 def ending_paths(shapes, shape_groups):
@@ -220,3 +234,31 @@ def ending_paths(shapes, shape_groups):
             "stroke_color": shape_group.stroke_color.tolist(),
         })
     return json.dumps(paths)
+
+def save_img(img, file_name):
+    img = np.transpose(img, (1, 2, 0))
+    img = np.clip(img, 0, 1)
+    img = np.uint8(img * 254)
+    pimg = PIL.Image.fromarray(img, mode="RGB")
+    pimg.save(file_name)
+
+
+
+p = Predictor()
+p.setup()
+
+
+output = p.predict(prompt="a 3d model of a submarine.", num_paths=16, num_iterations=20, display_frequency=1, starting_paths=False)
+print(output)
+for paths in output:
+    print(".")
+    starting_paths = paths
+
+print(starting_paths)
+
+output = p.predict(prompt="a baby shark chasing fish.", num_paths=16, num_iterations=20, display_frequency=1, starting_paths=starting_paths)
+for paths in output:
+    print("#")
+    x = paths
+
+print(x)
