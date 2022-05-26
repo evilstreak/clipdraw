@@ -168,6 +168,10 @@ class Predictor(BasePredictor):
                     loss += torch.cosine_similarity(text_features_neg1, image_features[n:n + 1], dim=1) * 0.3
                     loss += torch.cosine_similarity(text_features_neg2, image_features[n:n + 1], dim=1) * 0.3
 
+            for path_points in points_vars:
+                distances = torch.sqrt(torch.sum((path_points - 112) ** 2, axis=1))
+                loss += torch.sum(torch.nn.functional.relu(distances - 75) ** 2) * 0.001 / num_paths
+
             # Backpropagate the gradients.
             loss.backward()
 
