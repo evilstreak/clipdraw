@@ -52,7 +52,7 @@ class Predictor(BasePredictor):
                 description="number of paths/curves",
             ),
             num_iterations: int = Input(
-                default=1000,
+                default=600,
                 description="number of iterations",
             ),
             display_frequency: int = Input(
