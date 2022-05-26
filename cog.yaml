@@ -21,6 +21,7 @@ build:
     - "regex==2021.8.28"
     - "tqdm==4.62.3"
     - "scikit-image==0.18.3"
+    - "jupyterlab==3.3.4"
   run:
     - git clone https://github.com/BachiLi/diffvg && cd diffvg && git submodule update --init --recursive && CMAKE_PREFIX_PATH=$(pyenv prefix) DIFFVG_CUDA=1 python setup.py install
     - pip install git+https://github.com/openai/CLIP.git --no-deps
