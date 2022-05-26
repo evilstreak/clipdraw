@@ -59,6 +59,18 @@ class Predictor(BasePredictor):
                 default=10,
                 description="display frequency of intermediate images",
             ),
+            distance_from_centre_threshold: int = Input(
+                default=75,
+                description="distance at which points start generating penalties to loss",
+            ),
+            distance_from_centre_power: int = Input(
+                default=2,
+                description="power the distance from centre is raised to",
+            ),
+            distance_from_centre_weight: float = Input(
+                default=0.001,
+                description="weight the distance from centre penalty is multiplied by",
+            ),
     ) -> Iterator[Path]:
         assert isinstance(num_paths, int) and num_paths > 0, 'num_paths should be an positive integer'
         assert isinstance(num_iterations, int) and num_iterations > 0, 'num_iterations should be an positive integer'
@@ -170,7 +182,7 @@ class Predictor(BasePredictor):
 
             for path_points in points_vars:
                 distances = torch.sqrt(torch.sum((path_points - 112) ** 2, axis=1))
-                loss += torch.sum(torch.nn.functional.relu(distances - 75) ** 2) * 0.001 / num_paths
+                loss += torch.sum(torch.nn.functional.relu(distances - distance_from_centre_threshold) ** distance_from_centre_power) * distance_from_centre_weight / num_paths
 
             # Backpropagate the gradients.
             loss.backward()
